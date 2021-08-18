@@ -1,0 +1,392 @@
+---
+# Source: api-environment.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: testapp-api-env
+type: Opaque
+data:
+  RAILS_LOG_TO_STDOUT: <hidden values>
+  RAILS_ENV: <hidden values>
+  RAILS_MASTER_KEY: <hidden values>
+  SECRET_KEY_BASE: <hidden values>
+
+---
+# Source: sidekiq-environment.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: testapp-sidekiq-env
+type: Opaque
+data:
+  RAILS_LOG_TO_STDOUT: <hidden values>
+  RAILS_ENV: <hidden values>
+
+---
+# Source: api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: testapp-api
+  labels:
+    app.kubernetes.io/name: testapp
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: testapp-api
+    app.kubernetes.io/instance: testapp-dev-webapp
+    
+---
+# Source: ui-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: testapp-ui
+  labels:
+    app.kubernetes.io/name: testapp
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: testapp-ui
+    app.kubernetes.io/instance: testapp-dev-webapp
+
+---
+# Source: api-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testapp-api
+  labels:
+    app.kubernetes.io/name: testapp-api
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: testapp-api
+      app.kubernetes.io/instance: testapp-dev-webapp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: testapp-api
+        app.kubernetes.io/instance: testapp-dev-webapp
+    spec:
+      imagePullSecrets:
+        - name: docker.pkg.svc.shore.ca
+      containers:
+      - name: testapp-api
+        image: "docker.pkg.svc.shore.ca/shore/testapp/api:20201125-1125"
+        imagePullPolicy: Always
+        command: [ "/entrypoint.sh" ]
+        args: [ "rails" ]
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        envFrom:
+        - secretRef:
+            name: testapp-api-env
+        resources:
+            {}
+
+---
+# Source: sidekiq-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testapp-sidekiq
+  labels:
+    app.kubernetes.io/name: testapp-sidekiq
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: testapp-sidekiq
+      app.kubernetes.io/instance: testapp-dev-webapp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: testapp-sidekiq
+        app.kubernetes.io/instance: testapp-dev-webapp
+      annotations:
+        deployment: "uLC3l"
+    spec:
+      imagePullSecrets:
+      - name: docker.pkg.svc.shore.ca
+      volumes:
+      - name: "application-config-overrides"
+        secret:
+          secretName: testapp-api-config
+      containers:
+      - name: testapp-sidekiq
+        image: "docker.pkg.svc.shore.ca/shore/testapp/api:20201125-1125"
+        imagePullPolicy: Always
+        command: [ "/entrypoint.sh" ]
+        args: [ "sidekiq" ]
+        ports:
+        - name: http
+          containerPort: 6379
+          protocol: TCP
+        envFrom:
+        - secretRef:
+            name: testapp-sidekiq-env
+        volumeMounts:
+        - mountPath: "/app/application-config"
+          name: "application-config-overrides"
+          readOnly: true
+        resources:
+            null
+      nodeSelector:
+        null
+
+---
+# Source: ui-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testapp-ui
+  labels:
+    app.kubernetes.io/name: testapp-ui
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: testapp-ui
+      app.kubernetes.io/instance: testapp-dev-webapp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: testapp-ui
+        app.kubernetes.io/instance: testapp-dev-webapp
+      annotations:
+        deployment: "5dYj2"
+    spec:
+      imagePullSecrets:
+        - name: docker.pkg.svc.shore.ca
+      containers:
+      - name: testapp-ui
+        image: "docker.pkg.svc.shore.ca/shore/testapp/ui:20201125-1125"
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+        resources:
+            {}
+
+---
+# Source: cronjob.yaml
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: waitlist-scheduler
+  labels:
+    app.kubernetes.io/name: testapp-cron-waitlist-scheduler
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: "0 0 * * *"
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: testapp-cron-waitlist-scheduler
+        app.kubernetes.io/instance: testapp-dev-webapp
+      annotations:
+        deployment: "ZU2tl"
+    spec:
+      template:
+        spec:
+          imagePullSecrets:
+          - name: docker.pkg.svc.shore.ca
+          restartPolicy: Never
+          containers:
+            - name: testapp-app
+              image: "docker.pkg.svc.shore.ca/shore/testapp/api:20201125-1125"
+              imagePullPolicy: "Always"
+              args:
+                - 'task'
+                - "queue_job"
+                - "WORKER=BatchSetupWaitlistWorker"
+              envFrom:
+                - secretRef:
+                    name: testapp-api-env
+              resources:
+                {}
+
+---
+# Source: ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: testapp
+  labels:
+    app.kubernetes.io/name: testapp
+    helm.sh/chart: testapp-1-1-0
+    app.kubernetes.io/instance: testapp-dev-webapp
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+spec:
+  tls:
+  - hosts:
+    - "dev.testapp.shore-works.ca"
+    secretName: "dev.testapp.shore-works.ca-certificate"
+  rules:
+  - host: "dev.testapp.shore-works.ca"
+    http:
+      paths:
+      - path: /api/(.*)
+        backend:
+          serviceName: testapp-api
+          servicePort: 8080
+      - path: /auth/(.*)
+        backend:
+          serviceName: testapp-api
+          servicePort: 8080
+      - path: /sidekiq(.*)
+        backend:
+          serviceName: testapp-api
+          servicePort: 8080
+      - backend:
+          serviceName: testapp-ui
+          servicePort: 80
+
+---
+# Source: certificate.yaml
+apiVersion: cert-manager.io/v1alpha2
+kind: Certificate
+metadata:
+  name: dev.testapp.shore-works.ca
+spec:
+  commonName: dev.testapp.shore-works.ca
+  dnsNames:
+  - dev.testapp.shore-works.ca
+  issuerRef:
+    group: "cert-manager.io"
+    kind: "ClusterIssuer"
+    name: "scgdgok8s-letsencrypt-prod"
+  secretName: dev.testapp.shore-works.ca-certificate
+
+---
+# By default, if no policies exist in a namespace, then all ingress and egress traffic is allowed to and from pods in that namespace.
+# The following policy change the default behavior in that namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  # Name the network policy
+  name: testapp-api-network-policy
+spec:
+
+  # Apply access rules to these set of pods.
+  policyTypes:
+  - Ingress
+  - Egress
+
+  # Defines the set of pods to which this policy applies
+  # In this case, pods generated by testapp-api Deployment
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: testapp-api
+      app.kubernetes.io/instance: testapp-dev-webapp
+
+  # Allows access to port 8080 from anywhere
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - ipBlock:
+          cidr: 10.0.0.2/32
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - ipBlock:
+          cidr: 10.0.0.3/32
+    ports:
+    - protocol: TCP
+      port: 6379
+
+---
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  # Name the network policy
+  name: testapp-sidekiq-network-policy
+spec:
+
+  # Apply access rules to these set of pods.
+  policyTypes:
+  - Egress
+
+  # Defines the set of pods to which this policy applies
+  # In this case, pods generated by testapp-sidekiq Deployment
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: testapp-sidekiq
+      app.kubernetes.io/instance: testapp-dev-webapp
+
+  egress:
+  - to:
+    - ipBlock:
+          cidr: 10.0.0.3/32
+    ports:
+    - protocol: TCP
+      port: 6379
